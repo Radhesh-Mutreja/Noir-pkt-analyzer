@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>NOIR // PACKET ANALYZER</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --bg:        #080a0f;
+  --bg2:       #0d1117;
+  --bg3:       #111820;
+  --border:    #1a2535;
+  --accent:    #00d4ff;
+  --accent2:   #ff3366;
+  --accent3:   #39ff14;
+  --warn:      #ffaa00;
+  --dim:       #2a3a4a;
+  --text:      #c8d8e8;
+  --text-dim:  #4a6070;
+  --critical:  #ff3366;
+  --warning:   #ffaa00;
+  --normal:    #00d4ff;
+  --dns:       #b967ff;
+  --http:      #39ff14;
+  --tcp:       #00d4ff;
+  --udp:       #ff6b35;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Rajdhani', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Scanline overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,212,255,0.015) 2px,
+    rgba(0,212,255,0.015) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── Header ── */
+header {
+  border-bottom: 1px solid var(--border);
+  padding: 0 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+  background: linear-gradient(90deg, var(--bg2), var(--bg));
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.logo {
+  font-family: 'Orbitron', monospace;
+  font-size: 1.1rem;
+  font-weight: 900;
+  letter-spacing: 0.15em;
+  color: var(--accent);
+  text-shadow: 0 0 20px rgba(0,212,255,0.5);
+}
+.logo span { color: var(--accent2); }
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.75rem;
+}
+
+.status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  display: inline-block;
+  margin-right: 6px;
+  transition: all 0.3s;
+}
+.status-dot.active {
+  background: var(--accent3);
+  box-shadow: 0 0 8px var(--accent3);
+  animation: pulse 1.5s infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ── Layout ── */
+.container {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  grid-template-rows: auto 1fr;
+  height: calc(100vh - 64px);
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  grid-row: 1 / 3;
+  border-right: 1px solid var(--border);
+  background: var(--bg2);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  overflow-y: auto;
+}
+
+.section-label {
+  font-family: 'Orbitron', monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.2em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+}
+
+/* Controls */
+.btn {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid currentColor;
+  background: transparent;
+  font-family: 'Orbitron', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.15em;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+
+.btn-start {
+  color: var(--accent3);
+  border-color: var(--accent3);
+}
+.btn-start:hover:not(:disabled) {
+  background: rgba(57,255,20,0.1);
+  box-shadow: 0 0 15px rgba(57,255,20,0.3);
+}
+
+.btn-stop {
+  color: var(--accent2);
+  border-color: var(--accent2);
+}
+.btn-stop:hover:not(:disabled) {
+  background: rgba(255,51,102,0.1);
+  box-shadow: 0 0 15px rgba(255,51,102,0.3);
+}
+
+.btn-report {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.btn-report:hover {
+  background: rgba(0,212,255,0.1);
+  box-shadow: 0 0 15px rgba(0,212,255,0.3);
+}
+
+.btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.input-field {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.8rem;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.5rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.input-field:focus { border-color: var(--accent); }
+.input-field::placeholder { color: var(--text-dim); }
+
+/* Upload zone */
+.upload-zone {
+  border: 1px dashed var(--dim);
+  padding: 1.25rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+.upload-zone:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(0,212,255,0.03);
+}
+.upload-zone input { display: none; }
+
+/* Stats */
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.stat-box {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  padding: 0.75rem;
+  text-align: center;
+}
+
+.stat-value {
+  font-family: 'Orbitron', monospace;
+  font-size: 1.4rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  margin-top: 0.3rem;
+  text-transform: uppercase;
+}
+
+.stat-box.critical .stat-value { color: var(--critical); text-shadow: 0 0 10px rgba(255,51,102,0.5); }
+.stat-box.warning .stat-value  { color: var(--warning);  text-shadow: 0 0 10px rgba(255,170,0,0.5); }
+.stat-box.total .stat-value    { color: var(--accent);   text-shadow: 0 0 10px rgba(0,212,255,0.5); }
+.stat-box.dns .stat-value      { color: var(--dns); }
+.stat-box.http .stat-value     { color: var(--http); }
+
+/* Flags legend */
+.legend { display: flex; flex-direction: column; gap: 0.4rem; }
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+.legend-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Top controls bar ── */
+.controls-bar {
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: var(--bg2);
+  font-size: 0.8rem;
+}
+
+.filter-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.filter-btn {
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: 0.05em;
+}
+.filter-btn:hover, .filter-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(0,212,255,0.05);
+}
+.filter-btn.crit.active {
+  border-color: var(--critical);
+  color: var(--critical);
+  background: rgba(255,51,102,0.05);
+}
+
+.search-input {
+  margin-left: auto;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.75rem;
+  padding: 0.3rem 0.75rem;
+  outline: none;
+  width: 200px;
+  transition: border-color 0.2s;
+}
+.search-input:focus { border-color: var(--accent); }
+.search-input::placeholder { color: var(--text-dim); }
+
+.packet-count {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+/* ── Packet table ── */
+.table-wrapper {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.packet-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.72rem;
+}
+
+.packet-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+  padding: 0.6rem 1rem;
+  text-align: left;
+  font-family: 'Orbitron', monospace;
+  font-size: 0.55rem;
+  letter-spacing: 0.15em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.packet-table tbody tr {
+  border-bottom: 1px solid rgba(26,37,53,0.5);
+  transition: background 0.1s;
+  cursor: pointer;
+}
+.packet-table tbody tr:hover {
+  background: rgba(0,212,255,0.04);
+}
+
+.packet-table tbody tr.critical {
+  background: rgba(255,51,102,0.05);
+  border-left: 2px solid var(--critical);
+}
+.packet-table tbody tr.warning {
+  background: rgba(255,170,0,0.04);
+  border-left: 2px solid var(--warning);
+}
+.packet-table tbody tr.critical:hover { background: rgba(255,51,102,0.1); }
+.packet-table tbody tr.warning:hover  { background: rgba(255,170,0,0.08); }
+
+.packet-table td {
+  padding: 0.45rem 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+  color: var(--text);
+}
+
+.proto-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.65rem;
+  font-family: 'Orbitron', monospace;
+  letter-spacing: 0.05em;
+  border: 1px solid currentColor;
+}
+.proto-HTTP  { color: var(--http); }
+.proto-DNS   { color: var(--dns); }
+.proto-TCP   { color: var(--tcp); }
+.proto-UDP   { color: var(--udp); }
+.proto-OTHER { color: var(--text-dim); }
+
+.severity-badge {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.6rem;
+  border-radius: 2px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.sev-critical { background: rgba(255,51,102,0.2); color: var(--critical); }
+.sev-warning  { background: rgba(255,170,0,0.2);  color: var(--warning); }
+.sev-normal   { background: rgba(0,212,255,0.1);   color: var(--normal); }
+
+.flag-tag {
+  display: inline-block;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.6rem;
+  border: 1px solid var(--dim);
+  color: var(--text-dim);
+  margin: 0.1rem;
+}
+.flag-tag.danger { border-color: var(--critical); color: var(--critical); }
+.flag-tag.warn   { border-color: var(--warning);  color: var(--warning); }
+
+/* ── Packet detail panel ── */
+.detail-panel {
+  position: fixed;
+  right: 0; top: 64px;
+  width: 380px;
+  height: calc(100vh - 64px);
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+  padding: 1.5rem;
+  transform: translateX(100%);
+  transition: transform 0.25s ease;
+  overflow-y: auto;
+  z-index: 50;
+}
+.detail-panel.open { transform: translateX(0); }
+
+.detail-close {
+  position: absolute;
+  top: 1rem; right: 1rem;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  width: 28px; height: 28px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.detail-close:hover { border-color: var(--accent2); color: var(--accent2); }
+
+.detail-field {
+  margin-bottom: 1rem;
+}
+.detail-field-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.15em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin-bottom: 0.3rem;
+  font-family: 'Orbitron', monospace;
+}
+.detail-field-value {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.82rem;
+  color: var(--text);
+  word-break: break-all;
+}
+
+/* ── Main content ── */
+.main-content {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Empty state ── */
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  gap: 1rem;
+}
+.empty-state .big-icon {
+  font-family: 'Orbitron', monospace;
+  font-size: 3rem;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+}
+.empty-state p {
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+}
+
+/* ── Toast ── */
+.toast {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%) translateY(100px);
+  background: var(--bg3);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.8rem;
+  padding: 0.75rem 1.5rem;
+  letter-spacing: 0.1em;
+  transition: transform 0.3s ease;
+  z-index: 9999;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+.toast.error { border-color: var(--critical); color: var(--critical); }
+
+/* scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--dim); }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+.glitch {
+  animation: glitch 4s infinite;
+}
+@keyframes glitch {
+  0%,95%,100% { text-shadow: 0 0 20px rgba(0,212,255,0.5); }
+  96% { text-shadow: -2px 0 var(--accent2), 2px 0 var(--accent3); transform: skewX(-1deg); }
+  97% { text-shadow: 2px 0 var(--accent2), -2px 0 var(--accent); transform: skewX(0); }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo glitch">NOIR <span>//</span> PKT</div>
+  <div class="status-bar">
+    <span><span class="status-dot" id="statusDot"></span><span id="statusText">IDLE</span></span>
+    <span id="pktCounter" style="color:var(--accent);font-family:'Share Tech Mono',monospace">0 PKT</span>
+    <span id="clock" style="color:var(--text-dim)"></span>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+
+    <div>
+      <div class="section-label">Live Capture</div>
+      <input class="input-field" id="ifaceInput" placeholder="interface (e.g. eth0, blank=auto)"/>
+      <button class="btn btn-start" id="btnStart" onclick="startCapture()">▶ START CAPTURE</button>
+      <button class="btn btn-stop" id="btnStop" onclick="stopCapture()" disabled>■ STOP CAPTURE</button>
+    </div>
+
+    <div>
+      <div class="section-label">PCAP File</div>
+      <div class="upload-zone" onclick="document.getElementById('pcapInput').click()">
+        <input type="file" id="pcapInput" accept=".pcap,.pcapng,.cap" onchange="uploadPcap(this)"/>
+        <div>📁 DROP PCAP FILE</div>
+        <div style="font-size:0.7rem;margin-top:0.4rem">.pcap / .pcapng</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">Stats</div>
+      <div class="stat-grid">
+        <div class="stat-box total">
+          <div class="stat-value" id="statTotal">0</div>
+          <div class="stat-label">Total</div>
+        </div>
+        <div class="stat-box critical">
+          <div class="stat-value" id="statCritical">0</div>
+          <div class="stat-label">Critical</div>
+        </div>
+        <div class="stat-box warning">
+          <div class="stat-value" id="statWarning">0</div>
+          <div class="stat-label">Warning</div>
+        </div>
+        <div class="stat-box dns">
+          <div class="stat-value" id="statDNS">0</div>
+          <div class="stat-label">DNS</div>
+        </div>
+        <div class="stat-box http">
+          <div class="stat-value" id="statHTTP">0</div>
+          <div class="stat-label">HTTP</div>
+        </div>
+        <div class="stat-box" style="color:var(--udp)">
+          <div class="stat-value" id="statTCP" style="color:var(--tcp)">0</div>
+          <div class="stat-label">TCP</div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">Legend</div>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--critical)"></div>Critical — malicious IP / plaintext creds</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--warning)"></div>Warning — suspicious port</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--normal)"></div>Normal traffic</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--http)"></div>HTTP request/response</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--dns)"></div>DNS query</div>
+      </div>
+    </div>
+
+    <div style="margin-top:auto">
+      <button class="btn btn-report" onclick="downloadReport()">⬇ EXPORT HTML REPORT</button>
+    </div>
+
+  </aside>
+
+  <!-- Main -->
+  <div class="main-content" id="mainContent">
+
+    <div class="controls-bar">
+      <div class="filter-group">
+        <button class="filter-btn active" data-filter="ALL" onclick="setFilter(this,'ALL')">ALL</button>
+        <button class="filter-btn crit" data-filter="critical" onclick="setFilter(this,'critical')">CRITICAL</button>
+        <button class="filter-btn" data-filter="warning" onclick="setFilter(this,'warning')">WARN</button>
+        <button class="filter-btn" data-filter="HTTP" onclick="setFilter(this,'HTTP')">HTTP</button>
+        <button class="filter-btn" data-filter="DNS" onclick="setFilter(this,'DNS')">DNS</button>
+        <button class="filter-btn" data-filter="TCP" onclick="setFilter(this,'TCP')">TCP</button>
+      </div>
+      <span class="packet-count" id="filteredCount">0 shown</span>
+      <input class="search-input" placeholder="search ip / info..." oninput="renderTable()" id="searchInput"/>
+    </div>
+
+    <div class="table-wrapper" id="tableWrapper">
+      <div class="empty-state" id="emptyState">
+        <div class="big-icon">// NPA</div>
+        <p>START CAPTURE OR LOAD A PCAP FILE</p>
+        <p style="font-size:0.72rem">packets will appear here</p>
+      </div>
+      <table class="packet-table" id="packetTable" style="display:none">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>TIME</th>
+            <th>SRC</th>
+            <th>DST</th>
+            <th>PROTO</th>
+            <th>LEN</th>
+            <th>SEVERITY</th>
+            <th>INFO</th>
+            <th>FLAGS</th>
+          </tr>
+        </thead>
+        <tbody id="packetBody"></tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+
+<!-- Detail panel -->
+<div class="detail-panel" id="detailPanel">
+  <button class="detail-close" onclick="closeDetail()">✕</button>
+  <div class="section-label" style="margin-bottom:1.5rem">Packet Detail</div>
+  <div id="detailContent"></div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+let allPackets = [];
+let seenCount = 0;
+let pollInterval = null;
+let currentFilter = 'ALL';
+let selectedIdx = null;
+
+// Clock
+function updateClock() {
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString('en-GB');
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+function toast(msg, isError=false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => t.className = 'toast', 2500);
+}
+
+function setStatus(active) {
+  document.getElementById('statusDot').className = 'status-dot' + (active ? ' active' : '');
+  document.getElementById('statusText').textContent = active ? 'CAPTURING' : 'IDLE';
+}
+
+function setFilter(btn, filter) {
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentFilter = filter;
+  renderTable();
+}
+
+function getFiltered() {
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  return allPackets.filter((p, i) => {
+    if (currentFilter !== 'ALL') {
+      if (currentFilter === 'critical' && p.severity !== 'critical') return false;
+      if (currentFilter === 'warning' && p.severity !== 'warning') return false;
+      if (['HTTP','DNS','TCP','UDP'].includes(currentFilter) && p.protocol !== currentFilter) return false;
+    }
+    if (search) {
+      return (p.src+p.dst+p.info+p.protocol).toLowerCase().includes(search);
+    }
+    return true;
+  });
+}
+
+function renderTable() {
+  const filtered = getFiltered();
+  document.getElementById('filteredCount').textContent = filtered.length + ' shown';
+  document.getElementById('pktCounter').textContent = allPackets.length + ' PKT';
+
+  if (allPackets.length === 0) {
+    document.getElementById('emptyState').style.display = 'flex';
+    document.getElementById('packetTable').style.display = 'none';
+    return;
+  }
+
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('packetTable').style.display = 'table';
+
+  const tbody = document.getElementById('packetBody');
+  tbody.innerHTML = filtered.map((p, i) => {
+    const flags = p.flags.map(f => {
+      const isDanger = f.includes('CRED') || f.includes('MALICIOUS');
+      const isWarn = f.includes('SUSPICIOUS');
+      return `<span class="flag-tag${isDanger?' danger':isWarn?' warn':''}">${f}</span>`;
+    }).join('');
+
+    const sevClass = p.severity === 'critical' ? 'sev-critical' : p.severity === 'warning' ? 'sev-warning' : 'sev-normal';
+    const rowIdx = allPackets.indexOf(p);
+
+    return `<tr class="${p.severity}" onclick="showDetail(${rowIdx})">
+      <td style="color:var(--text-dim)">${rowIdx+1}</td>
+      <td>${p.timestamp}</td>
+      <td>${p.src || '—'}</td>
+      <td>${p.dst || '—'}</td>
+      <td><span class="proto-badge proto-${p.protocol}">${p.protocol}</span></td>
+      <td>${p.length}B</td>
+      <td><span class="severity-badge ${sevClass}">${p.severity.toUpperCase()}</span></td>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis">${p.info || '—'}</td>
+      <td>${flags}</td>
+    </tr>`;
+  }).join('');
+}
+
+function updateStats(stats) {
+  document.getElementById('statTotal').textContent = allPackets.length;
+  document.getElementById('statCritical').textContent = stats.critical || 0;
+  document.getElementById('statWarning').textContent = stats.warning || 0;
+  document.getElementById('statDNS').textContent = stats.DNS || 0;
+  document.getElementById('statHTTP').textContent = stats.HTTP || 0;
+  document.getElementById('statTCP').textContent = stats.TCP || 0;
+}
+
+function showDetail(idx) {
+  const p = allPackets[idx];
+  if (!p) return;
+  const panel = document.getElementById('detailPanel');
+  const content = document.getElementById('detailContent');
+
+  const sevClass = p.severity === 'critical' ? 'sev-critical' : p.severity === 'warning' ? 'sev-warning' : 'sev-normal';
+  const flags = p.flags.map(f => {
+    const isDanger = f.includes('CRED') || f.includes('MALICIOUS');
+    const isWarn = f.includes('SUSPICIOUS');
+    return `<span class="flag-tag${isDanger?' danger':isWarn?' warn':''}" style="display:inline-block;margin:0.2rem">${f}</span>`;
+  }).join('') || '<span style="color:var(--text-dim);font-size:0.8rem">none</span>';
+
+  content.innerHTML = `
+    <div class="detail-field">
+      <div class="detail-field-label">Index</div>
+      <div class="detail-field-value">#${idx+1}</div>
+    </div>
+    <div class="detail-field">
+      <div class="detail-field-label">Timestamp</div>
+      <div class="detail-field-value">${p.timestamp}</div>
+    </div>
+    <div class="detail-field">
+      <div class="detail-field-label">Severity</div>
+      <div class="detail-field-value"><span class="severity-badge ${sevClass}">${p.severity.toUpperCase()}</span></div>
+    </div>
+    <div class="detail-field">
+      <div class="detail-field-label">Protocol</div>
+      <div class="detail-field-value"><span class="proto-badge proto-${p.protocol}">${p.protocol}</span></div>
+    </div>
+    <div class="detail-field">
+      <div class="detail-field-label">Source IP</div>
+      <div class="detail-field-value">${p.src || '—'}</div>
+    </div>
+    <div class="detail-field">
+      <div class="detail-field-label">Destination IP</div>
+      <div class="detail-field-value">${p.dst || '—'}</div>
+    </div>
+    <div class="detail-field">
+      <div class="detail-field-label">Packet Length</div>
+      <div class="detail-field-value">${p.length} bytes</div>
+    </div>
+    <div class="detail-field">
+      <div class="detail-field-label">Info</div>
+      <div class="detail-field-value">${p.info || '—'}</div>
+    </div>
+    <div class="detail-field">
+      <div class="detail-field-label">Flags</div>
+      <div class="detail-field-value">${flags}</div>
+    </div>
+  `;
+
+  panel.classList.add('open');
+}
+
+function closeDetail() {
+  document.getElementById('detailPanel').classList.remove('open');
+}
+
+// Live capture
+async function startCapture() {
+  const iface = document.getElementById('ifaceInput').value.trim() || null;
+  try {
+    const r = await fetch('/api/capture/start', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({interface: iface})
+    });
+    const d = await r.json();
+    if (d.status === 'started' || d.status === 'already_running') {
+      setStatus(true);
+      document.getElementById('btnStart').disabled = true;
+      document.getElementById('btnStop').disabled = false;
+      allPackets = [];
+      seenCount = 0;
+      pollInterval = setInterval(pollPackets, 800);
+      toast('CAPTURE STARTED');
+    }
+  } catch(e) { toast('ERROR: ' + e.message, true); }
+}
+
+async function stopCapture() {
+  clearInterval(pollInterval);
+  await fetch('/api/capture/stop', {method:'POST'});
+  setStatus(false);
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnStop').disabled = true;
+  toast('CAPTURE STOPPED — ' + allPackets.length + ' packets');
+}
+
+async function pollPackets() {
+  try {
+    const r = await fetch(`/api/packets?since=${seenCount}`);
+    const d = await r.json();
+    if (d.packets.length > 0) {
+      allPackets.push(...d.packets);
+      seenCount = d.total;
+      renderTable();
+      updateStats(d.stats);
+      // Auto-scroll
+      const tw = document.getElementById('tableWrapper');
+      tw.scrollTop = tw.scrollHeight;
+    }
+    if (!d.running) {
+      clearInterval(pollInterval);
+      setStatus(false);
+    }
+  } catch(e) {}
+}
+
+async function uploadPcap(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('file', file);
+  toast('LOADING PCAP...');
+  try {
+    const r = await fetch('/api/upload', {method:'POST', body:form});
+    const d = await r.json();
+    if (d.error) { toast('ERROR: ' + d.error, true); return; }
+    allPackets = d.packets;
+    seenCount = d.total;
+    renderTable();
+    updateStats(d.stats);
+    toast(`LOADED ${d.total} PACKETS FROM ${file.name}`);
+  } catch(e) { toast('UPLOAD FAILED', true); }
+}
+
+function downloadReport() {
+  if (allPackets.length === 0) { toast('NO PACKETS TO REPORT', true); return; }
+  window.location.href = '/api/report';
+}
+</script>
+</body>
+</html>
